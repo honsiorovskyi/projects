@@ -1,0 +1,12 @@
+# vim:ft=bash
+
+p() {
+  local target
+  target=$(pgo --print "$@")
+  if [[ -n "$target" ]]; then
+    cd "$target" || return 1
+  fi
+}
+
+alias pn='pnew'
+alias pa='padd'

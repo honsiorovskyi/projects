@@ -1,0 +1,67 @@
+#!/bin/bash
+# vim:ft=bash
+#
+# List GitHub org repos pushed within last N days
+# Usage: github-repos [days]
+
+set -e
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  cat <<EOF
+Usage: github-repos [days]
+
+List GitHub organization repos pushed within the last N days.
+
+Arguments:
+  days    Number of days to look back (default: 180)
+
+Environment:
+  GITHUB_ORG    GitHub organization name (required)
+  GITHUB_TOKEN  GitHub API token (optional, for private repos)
+EOF
+  exit 0
+fi
+
+days="${1:-180}"
+
+if [[ -z "$GITHUB_ORG" ]]; then
+  echo "Error: GITHUB_ORG is not set" >&2
+  exit 1
+fi
+
+# Calculate cutoff date (cross-platform)
+cutoff_date=$(date -d "$days days ago" -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
+              date -v-${days}d -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Prepare auth header
+auth_args=(-s -H "Accept: application/vnd.github.v3+json")
+if [[ -n "$GITHUB_TOKEN" ]]; then
+  auth_args+=(-H "Authorization: token $GITHUB_TOKEN")
+fi
+
+page=1
+per_page=100
+
+while true; do
+  response=$(curl "${auth_args[@]}" \
+    "https://api.github.com/orgs/$GITHUB_ORG/repos?per_page=$per_page&page=$page&sort=pushed&direction=desc")
+
+  # Check for errors
+  if echo "$response" | jq -e '.message' >/dev/null 2>&1; then
+    echo "Error: $(echo "$response" | jq -r '.message')" >&2
+    exit 1
+  fi
+
+  page_count=$(echo "$response" | jq -r '. | length')
+  [[ $page_count -eq 0 ]] && break
+
+  # Get repos pushed after cutoff, stop when we hit older repos
+  echo "$response" | jq -r --arg cutoff "$cutoff_date" \
+    '.[] | select(.pushed_at >= $cutoff) | .name'
+
+  # Check if last repo is older than cutoff - if so, we're done
+  last_push=$(echo "$response" | jq -r '.[-1].pushed_at')
+  [[ "$last_push" < "$cutoff_date" ]] && break
+
+  ((page++))
+done

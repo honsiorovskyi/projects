@@ -1,0 +1,57 @@
+#!/bin/bash
+# vim:ft=bash
+#
+# Sync list of org repositories to cache for fzf completion
+
+set -e
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  cat <<EOF
+Usage: psync
+
+Fetch list of organization repositories and cache for fzf completion.
+
+Sync Methods (in order of precedence):
+  1. PROJECTS_SYNC_COMMAND - custom command that outputs repo names
+  2. github-repos - built-in GitHub sync (requires GITHUB_ORG)
+
+Environment:
+  PROJECTS_SYNC_COMMAND     Custom command to list repos (one per line)
+  PROJECTS_CACHE_REPOS_LIST Cached repo list (default: ~/.cache/p.repos.list)
+  
+GitHub-specific (used by built-in github-repos):
+  GITHUB_ORG                GitHub organization name
+  GITHUB_TOKEN              GitHub API token for authentication
+
+Examples for other providers:
+  # GitLab
+  export PROJECTS_SYNC_COMMAND='curl -s "https://gitlab.com/api/v4/groups/\$ORG/projects?per_page=100" -H "PRIVATE-TOKEN: \$GITLAB_TOKEN" | jq -r ".[].path"'
+  
+  # Codeberg/Gitea
+  export PROJECTS_SYNC_COMMAND='curl -s "https://codeberg.org/api/v1/orgs/\$ORG/repos" -H "Authorization: token \$CODEBERG_TOKEN" | jq -r ".[].name"'
+EOF
+  exit 0
+fi
+
+PROJECTS_CACHE_REPOS_LIST="${PROJECTS_CACHE_REPOS_LIST:-$HOME/.cache/p.repos.list}"
+
+# Determine sync command
+if [[ -n "$PROJECTS_SYNC_COMMAND" ]]; then
+  sync_command="$PROJECTS_SYNC_COMMAND"
+elif [[ -n "$GITHUB_ORG" ]]; then
+  sync_command="github-repos"
+else
+  echo "Error: Set PROJECTS_SYNC_COMMAND or GITHUB_ORG" >&2
+  exit 1
+fi
+
+# Run sync command
+repos=$(eval "$sync_command")
+
+if [[ -z "$repos" ]]; then
+  echo "Error: Sync command returned no repos" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$PROJECTS_CACHE_REPOS_LIST")"
+echo "$repos" > "$PROJECTS_CACHE_REPOS_LIST"

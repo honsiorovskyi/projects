@@ -1,0 +1,199 @@
+# vim:ft=bash
+#
+# Prompt helpers for projects
+# Source this file and use the functions in your PROMPT_COMMAND
+#
+# Example:
+#   source ~/.local/projects/share/projects/prompt
+#   
+#   my_prompt() {
+#     projects::maybe_sync  # auto-sync in background if cache is stale
+#     local project_prefix=$(projects::prompt_prefix)
+#     if [[ -n "$project_prefix" ]]; then
+#       PS1="$project_prefix \$ "
+#     else
+#       PS1="\W \$ "
+#     fi
+#   }
+#   PROMPT_COMMAND='my_prompt'
+
+PROJECTS_HOME="${PROJECTS_HOME:-$HOME/projects}"
+PROJECTS_CACHE_REPOS_LIST="${PROJECTS_CACHE_REPOS_LIST:-$HOME/.cache/p.repos.list}"
+PROJECTS_SYNC_MAX_AGE="${PROJECTS_SYNC_MAX_AGE:-604800}"  # 1 week in seconds
+
+# Check if we're inside a project directory
+projects::is_inside_project() {
+  [[ "$PWD" == "$PROJECTS_HOME"/* ]]
+}
+
+# Check if we're inside a repo within a project
+projects::is_inside_repo() {
+  projects::is_inside_project && [[ -e .git ]]
+}
+
+# Get current project name (empty if not in a project)
+projects::get_project() {
+  if ! projects::is_inside_project; then
+    return 1
+  fi
+  echo "$PWD" | sed "s|$PROJECTS_HOME/||" | cut -d'/' -f1
+}
+
+# Get current repo name (empty if not in a repo)
+projects::get_repo() {
+  if ! projects::is_inside_repo; then
+    return 1
+  fi
+  local relative_path=$(echo "$PWD" | sed "s|$PROJECTS_HOME/||")
+  local repo=$(echo "$relative_path" | cut -d'/' -f2)
+  local project=$(echo "$relative_path" | cut -d'/' -f1)
+  
+  # Only return repo if it's different from project (i.e., we're actually in a repo subdir)
+  if [[ -n "$repo" && "$repo" != "$project" ]]; then
+    echo "$repo"
+  fi
+}
+
+# Get project/repo context as "project:repo" or "project" or empty
+projects::get_context() {
+  local project=$(projects::get_project)
+  [[ -z "$project" ]] && return 1
+  
+  local repo=$(projects::get_repo)
+  if [[ -n "$repo" ]]; then
+    echo "$project:$repo"
+  else
+    echo "$project"
+  fi
+}
+
+# Check if current git branch matches the project name
+projects::branch_matches_project() {
+  local project=$(projects::get_project)
+  [[ -z "$project" ]] && return 1
+  
+  local branch=$(git branch --show-current 2>/dev/null)
+  [[ "$branch" == "$project" ]]
+}
+
+# Get git status indicators (dirty, staged, untracked) without branch name
+# Returns empty if not in a git repo
+projects::git_status() {
+  [[ ! -e .git ]] && return
+  
+  local status=""
+  
+  # Check for uncommitted changes
+  if ! git diff --quiet 2>/dev/null; then
+    status+="*"
+  fi
+  
+  # Check for staged changes
+  if ! git diff --cached --quiet 2>/dev/null; then
+    status+="+"
+  fi
+  
+  # Check for untracked files
+  if [[ -n $(git ls-files --others --exclude-standard 2>/dev/null) ]]; then
+    status+="%"
+  fi
+  
+  echo "$status"
+}
+
+# Format prompt prefix with colors
+# Returns: "project/repo status" or "project" or empty
+# Uses ANSI colors: green for project, blue for repo
+projects::prompt_prefix() {
+  local project=$(projects::get_project)
+  [[ -z "$project" ]] && return
+  
+  local repo=$(projects::get_repo)
+  local status=$(projects::git_status)
+  
+  # Colors (with PS1-safe escapes)
+  local green='\[\e[32m\]'
+  local blue='\[\e[34m\]'
+  local reset='\[\e[0m\]'
+  
+  local prefix="${green}${project}${reset}"
+  
+  if [[ -n "$repo" ]]; then
+    prefix+="/${blue}${repo}${reset}"
+  fi
+  
+  if [[ -n "$status" ]]; then
+    # Show branch only if it doesn't match project name
+    if ! projects::branch_matches_project; then
+      local branch=$(git branch --show-current 2>/dev/null)
+      prefix+=" ${branch}"
+    fi
+    prefix+=" ${status}"
+  fi
+  
+  echo "$prefix"
+}
+
+# Simple prompt prefix without colors (for non-interactive use)
+projects::prompt_prefix_plain() {
+  local project=$(projects::get_project)
+  [[ -z "$project" ]] && return
+  
+  local repo=$(projects::get_repo)
+  local status=$(projects::git_status)
+  
+  local prefix="$project"
+  
+  if [[ -n "$repo" ]]; then
+    prefix+="/$repo"
+  fi
+  
+  if [[ -n "$status" ]]; then
+    if ! projects::branch_matches_project; then
+      local branch=$(git branch --show-current 2>/dev/null)
+      prefix+=" ${branch}"
+    fi
+    prefix+=" ${status}"
+  fi
+  
+  echo "$prefix"
+}
+
+# Get file modification time in seconds since epoch (cross-platform)
+projects::_file_mtime() {
+  local file="$1"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    stat -f %m "$file" 2>/dev/null
+  else
+    stat -c %Y "$file" 2>/dev/null
+  fi
+}
+
+# Run psync in background if cache is stale or missing
+# Call this from your PROMPT_COMMAND for auto-sync
+projects::maybe_sync() {
+  # Skip if neither GITHUB_ORG nor PROJECTS_SYNC_COMMAND is set
+  [[ -z "$GITHUB_ORG" && -z "$PROJECTS_SYNC_COMMAND" ]] && return
+  
+  # Skip if already syncing (simple lock)
+  [[ -n "$_projects_syncing" ]] && return
+  
+  local now=$(date +%s)
+  local cache="$PROJECTS_CACHE_REPOS_LIST"
+  
+  # Check if cache is missing or stale
+  if [[ ! -f "$cache" ]]; then
+    _projects_syncing=1
+    ( psync &>/dev/null; unset _projects_syncing ) &
+    disown
+  else
+    local mtime=$(projects::_file_mtime "$cache")
+    local age=$((now - mtime))
+    
+    if [[ $age -gt $PROJECTS_SYNC_MAX_AGE ]]; then
+      _projects_syncing=1
+      ( psync &>/dev/null; unset _projects_syncing ) &
+      disown
+    fi
+  fi
+}

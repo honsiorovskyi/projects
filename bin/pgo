@@ -1,0 +1,74 @@
+#!/bin/bash
+# vim:ft=bash
+#
+# Navigate to a repo inside a project
+
+set -e
+
+PROJECTS_HOME="${PROJECTS_HOME:-$HOME/projects}"
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  cat <<EOF
+Usage: pgo [--print] [project] [repo]
+
+Navigate to a repository inside a project.
+
+Options:
+  --print   Print the path instead of spawning a new shell
+
+Arguments:
+  project   Initial search query for project selection
+  repo      Initial search query for repo selection
+
+Both arguments are optional and used as fzf prefill queries.
+
+Environment:
+  PROJECTS_HOME   Base projects directory (default: ~/projects)
+EOF
+  exit 0
+fi
+
+print_only=false
+if [[ "$1" == "--print" ]]; then
+  print_only=true
+  shift
+fi
+
+project_query="${1:-}"
+repo_query="${2:-}"
+
+# Select project
+project_path=$(find "$PROJECTS_HOME" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+  | sed "s|$PROJECTS_HOME/||" \
+  | fzf --prompt="Project: " --query="$project_query")
+
+if [[ -z "$project_path" ]]; then
+  exit 0
+fi
+
+project_path="$PROJECTS_HOME/$project_path"
+
+# Find repos in project
+repos=$(find "$project_path" -mindepth 1 -maxdepth 1 -type d -exec test -e "{}/.git" \; -print 2>/dev/null \
+  | sed "s|$project_path/||")
+
+# Add project root option at top
+repo_list="."
+if [[ -n "$repos" ]]; then
+  repo_list="$repo_list"$'\n'"$repos"
+fi
+
+# Select repo
+repo=$(echo "$repo_list" | fzf --prompt="Repo: " --query="$repo_query")
+
+target="$project_path"
+if [[ -n "$repo" && "$repo" != "." ]]; then
+  target="$project_path/$repo"
+fi
+
+if [[ "$print_only" == true ]]; then
+  echo "$target"
+else
+  cd "$target"
+  exec $SHELL
+fi

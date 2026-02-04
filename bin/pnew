@@ -1,0 +1,103 @@
+#!/bin/bash
+# vim:ft=bash
+#
+# Create a new project and optionally add repos
+
+set -e
+
+PROJECTS_HOME="${PROJECTS_HOME:-$HOME/projects}"
+PROJECTS_TICKET_ENABLED="${PROJECTS_TICKET_ENABLED:-}"
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  cat <<EOF
+Usage: pnew [name] [ticket] [repo_filter]
+
+Create a new project directory and optionally clone repos into it.
+
+Arguments:
+  name          Project name (will be hyphenated)
+  ticket        Ticket ID or URL (only if PROJECTS_TICKET_ENABLED=1)
+  repo_filter   Initial search query for padd
+
+If arguments are omitted, you will be prompted for them.
+Project folder will be: \$PROJECTS_HOME/<name>[-<ticket>]
+
+Environment:
+  PROJECTS_HOME            Base projects directory (default: ~/projects)
+  PROJECTS_TICKET_ENABLED  Enable ticket integration (default: disabled)
+EOF
+  exit 0
+fi
+
+# Hyphenate a string: lowercase, non-alphanumeric to dashes
+hyphenate() {
+  echo "$1" | tr -c '[:alnum:]' '-' | tr '[:upper:]' '[:lower:]' | sed 's/-\+/-/g; s/^-//; s/-$//'
+}
+
+# Extract ticket from input (URL or plain ticket ID)
+extract_ticket() {
+  local input="$1"
+  if [[ "$input" =~ https?://[^/]+/browse/([A-Za-z]+-[0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo "$input"
+  fi
+}
+
+# Get arguments or prompt
+name="${1:-}"
+repo_filter=""
+
+if [[ -n "$PROJECTS_TICKET_ENABLED" ]]; then
+  ticket="${2:-}"
+  repo_filter="${3:-}"
+else
+  repo_filter="${2:-}"
+  ticket=""
+fi
+
+if [[ -z "$name" ]]; then
+  read -r -p "Project name: " name
+fi
+
+if [[ -n "$PROJECTS_TICKET_ENABLED" && -z "$ticket" ]]; then
+  read -r -p "Ticket (ID or URL): " ticket
+fi
+
+# Process inputs
+name=$(hyphenate "$name")
+if [[ -n "$ticket" ]]; then
+  ticket=$(extract_ticket "$ticket")
+  ticket=$(hyphenate "$ticket")
+fi
+
+if [[ -z "$name" ]]; then
+  echo "Error: Project name is required" >&2
+  exit 1
+fi
+
+# Build project folder name
+if [[ -n "$ticket" ]]; then
+  project_name="${name}-${ticket}"
+else
+  project_name="$name"
+fi
+
+project_path="$PROJECTS_HOME/$project_name"
+
+# Check if folder exists
+if [[ -d "$project_path" ]]; then
+  echo "Error: Project folder already exists: $project_path" >&2
+  exit 1
+fi
+
+# Create folder
+mkdir -p "$project_path"
+cd "$project_path"
+
+# Call padd if repo_filter provided, otherwise just run padd
+if [[ -n "$repo_filter" ]]; then
+  padd "$repo_filter"
+else
+  padd
+fi

@@ -1,0 +1,145 @@
+#!/bin/bash
+# vim:ft=bash
+#
+# Interactively select repos from cache and clone them into the current project
+
+set -e
+
+PROJECTS_CACHE_REPOS_LIST="${PROJECTS_CACHE_REPOS_LIST:-$HOME/.cache/p.repos.list}"
+PROJECTS_HOME="${PROJECTS_HOME:-$HOME/projects}"
+
+# Derive PROJECTS_GIT_BASE from GITHUB_ORG if not set
+if [[ -z "$PROJECTS_GIT_BASE" && -n "$GITHUB_ORG" ]]; then
+  PROJECTS_GIT_BASE="git@github.com:$GITHUB_ORG"
+fi
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  cat <<EOF
+Usage: padd [--sync] [query]
+
+Interactively select repositories to clone into the current project.
+
+Options:
+  --sync    Run psync first to refresh the repo cache
+  query     Initial search query for fzf
+
+Requirements:
+  - Must be run from inside \$PROJECTS_HOME/<project_name>
+  - PROJECTS_GIT_BASE or GITHUB_ORG must be set
+  - Cache file must exist (run psync first, or use --sync)
+
+Environment:
+  PROJECTS_HOME      Base projects directory (default: ~/projects)
+  PROJECTS_GIT_BASE  Git URL prefix (default: git@github.com:\$GITHUB_ORG)
+  GITHUB_ORG         GitHub org (used to derive PROJECTS_GIT_BASE if not set)
+EOF
+  exit 0
+fi
+
+# Check if PROJECTS_GIT_BASE is defined
+if [[ -z "$PROJECTS_GIT_BASE" ]]; then
+  echo "Error: Set PROJECTS_GIT_BASE or GITHUB_ORG" >&2
+  exit 1
+fi
+
+# Handle --sync flag
+if [[ "$1" == "--sync" ]]; then
+  psync
+  shift
+fi
+
+# Optional query argument
+query="${1:-}"
+
+# Check if we're in a project directory
+if [[ "$PWD" != "$PROJECTS_HOME"/* ]]; then
+  echo "Error: Must be inside a project directory ($PROJECTS_HOME/<project_name>)" >&2
+  exit 1
+fi
+
+# Check if cache file exists
+if [[ ! -f "$PROJECTS_CACHE_REPOS_LIST" ]]; then
+  echo "Error: Cache file not found. Run 'psync' first or use 'padd --sync'." >&2
+  exit 1
+fi
+
+# Extract project name from current path
+project_name=$(echo "$PWD" | sed "s|$PROJECTS_HOME/||" | cut -d'/' -f1)
+project_path="$PROJECTS_HOME/$project_name"
+
+# Get list of existing repos in current project
+get_existing_repos() {
+  find "$project_path" -mindepth 1 -maxdepth 1 -type d -exec test -e "{}/.git" \; -print 2>/dev/null | xargs -r basename -a
+}
+
+# Build display list with markers
+build_display_list() {
+  local existing_repos="$1"
+  local all_repos
+  all_repos=$(cat "$PROJECTS_CACHE_REPOS_LIST")
+  
+  # Add done option at top
+  echo "  -- done --"
+  
+  while IFS= read -r repo; do
+    [[ -z "$repo" ]] && continue
+    if echo "$existing_repos" | grep -Fxq "$repo" 2>/dev/null; then
+      echo "✓ $repo"
+    else
+      echo "  $repo"
+    fi
+  done <<< "$all_repos"
+}
+
+selected_repos=()
+
+# Loop until user confirms or cancels
+while true; do
+  existing_repos=$(get_existing_repos)
+  
+  # Add already-selected repos to existing list for display
+  all_existing="$existing_repos"
+  for repo in "${selected_repos[@]}"; do
+    all_existing+=$'\n'"$repo"
+  done
+  
+  display_list=$(build_display_list "$all_existing")
+  
+  set +e
+  selected=$(echo "$display_list" | fzf --ansi \
+    --prompt="Select repos: " \
+    --header="Enter: select | '-- done --': finish | Ctrl-C: cancel" \
+    --query="$query")
+  exit_code=$?
+  set -e
+  
+  # Clear query after first use
+  query=""
+  
+  # Ctrl-C or Esc: cancel
+  if [[ $exit_code -ne 0 ]]; then
+    exit 0
+  fi
+  
+  # Empty selection or "done" = finish
+  if [[ -z "$selected" || "$selected" == "  -- done --" ]]; then
+    break
+  fi
+  
+  # Remove marker and whitespace
+  repo_name=$(echo "$selected" | sed 's/^[✓ ]*//')
+  
+  # Skip if already exists or already selected
+  if [[ -d "$project_path/$repo_name" ]] || printf '%s\n' "${selected_repos[@]}" | grep -Fxq "$repo_name" 2>/dev/null; then
+    continue
+  fi
+  
+  selected_repos+=("$repo_name")
+done
+
+if [[ ${#selected_repos[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+# Clone all selected repos
+pclone "${selected_repos[@]}"
