@@ -10,9 +10,12 @@ PROJECTS_TICKET_ENABLED="${PROJECTS_TICKET_ENABLED:-}"
 
 if [[ "$1" == "--help" || "$1" == "-h" ]]; then
   cat <<EOF
-Usage: pnew [name] [ticket] [repo_filter]
+Usage: pnew [--print] [name] [ticket] [repo_filter]
 
 Create a new project directory and optionally clone repos into it.
+
+Options:
+  --print   Print the path instead of spawning a new shell
 
 Arguments:
   name          Project name (will be hyphenated)
@@ -27,6 +30,12 @@ Environment:
   PROJECTS_TICKET_ENABLED  Enable ticket integration (default: disabled)
 EOF
   exit 0
+fi
+
+print_only=false
+if [[ "$1" == "--print" ]]; then
+  print_only=true
+  shift
 fi
 
 # Hyphenate a string: lowercase, non-alphanumeric to dashes
@@ -100,4 +109,11 @@ if [[ -n "$repo_filter" ]]; then
   padd "$repo_filter"
 else
   padd
+fi
+
+# Spawn a new shell in the project directory
+if [[ "$print_only" == true ]]; then
+  echo "$project_path"
+else
+  exec $SHELL
 fi

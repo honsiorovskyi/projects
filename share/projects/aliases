@@ -8,5 +8,12 @@ p() {
   fi
 }
 
-alias pn='pnew'
+pn() {
+  local target
+  target=$(pnew --print "$@")
+  if [[ -n "$target" ]]; then
+    cd "$target" || return 1
+  fi
+}
+
 alias pa='padd'
