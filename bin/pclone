@@ -64,8 +64,8 @@ for repo in "$@"; do
   cache_repo="$PROJECTS_CACHE_REPOS/${repo}.git"
   
   if [[ -d "$cache_repo" ]]; then
-    # Update existing cache
-    git -C "$cache_repo" fetch --depth 1 --prune
+    # Update existing cache — explicit refspec ensures bare repo heads are updated
+    git -C "$cache_repo" fetch --depth 1 --prune origin '+refs/heads/*:refs/heads/*'
   else
     # Create new shallow bare cache (single branch only)
     git clone --bare --depth 1 --single-branch "${PROJECTS_GIT_BASE}/${repo}.git" "$cache_repo"
@@ -79,6 +79,9 @@ for repo in "$@"; do
     cd "$repo"
     git remote set-url origin "${PROJECTS_GIT_BASE}/${repo}.git"
     git fetch --depth 1
+    # Update local branch to match remote (cache clone may be behind)
+    default_branch=$(git symbolic-ref --short HEAD)
+    git reset --hard "origin/$default_branch"
     git checkout -b "$project_name"
   )
 done
