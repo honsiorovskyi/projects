@@ -12,9 +12,9 @@ Usage: pclone <repo1> [repo2] [repo3] ...
 Clone repositories into the current project directory and create a branch
 named after the project.
 
-Uses a local bare repo cache (~/.cache/p.repos) for faster subsequent clones.
-First clone fetches from remote and creates cache; subsequent clones use
-cache as reference and only fetch deltas.
+Uses a local repo cache (~/.cache/p.repos) for faster subsequent clones.
+First clone fetches from remote into cache; subsequent clones just fetch
+updates. Target repo is copied from cache and gets a new branch.
 
 Requirements:
   - Must be run from inside \$PROJECTS_HOME/<project_name>
@@ -61,27 +61,22 @@ project_name=$(echo "$PWD" | sed "s|$PROJECTS_HOME/||" | cut -d'/' -f1)
 mkdir -p "$PROJECTS_CACHE_REPOS"
 
 for repo in "$@"; do
-  cache_repo="$PROJECTS_CACHE_REPOS/${repo}.git"
+  cache_repo="$PROJECTS_CACHE_REPOS/${repo}"
   
   if [[ -d "$cache_repo" ]]; then
-    # Update existing cache — explicit refspec ensures bare repo heads are updated
-    git -C "$cache_repo" fetch --depth 1 --prune origin '+refs/heads/*:refs/heads/*'
+    # Update existing cache
+    git -C "$cache_repo" fetch --all --prune
   else
-    # Create new shallow bare cache (single branch only)
-    git clone --bare --depth 1 --single-branch "${PROJECTS_GIT_BASE}/${repo}.git" "$cache_repo"
+    # Full clone into cache
+    git clone "${PROJECTS_GIT_BASE}/${repo}.git" "$cache_repo"
   fi
   
-  # Clone from local cache (fast)
-  git clone --single-branch "$cache_repo" "$repo"
+  # Copy cached repo into project directory
+  cp -r "$cache_repo" "$repo"
   
-  # Repoint remote to actual origin and fetch latest
+  # Create project branch
   (
     cd "$repo"
-    git remote set-url origin "${PROJECTS_GIT_BASE}/${repo}.git"
-    git fetch --depth 1
-    # Update local branch to match remote (cache clone may be behind)
-    default_branch=$(git symbolic-ref --short HEAD)
-    git reset --hard "origin/$default_branch"
     git checkout -b "$project_name"
   )
 done
