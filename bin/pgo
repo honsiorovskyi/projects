@@ -38,15 +38,24 @@ project_query="${1:-}"
 repo_query="${2:-}"
 
 # Select project
-project_path=$(find "$PROJECTS_HOME" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+output=$(find "$PROJECTS_HOME" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
   | sed "s|$PROJECTS_HOME/||" \
-  | fzf --prompt="Project: " --query="$project_query")
+  | fzf --print-query --prompt="Project: " --query="$project_query") || true
 
-if [[ -z "$project_path" ]]; then
+fzf_query=$(echo "$output" | sed -n '1p')
+fzf_selection=$(echo "$output" | sed -n '2p')
+project_name="${fzf_selection:-$fzf_query}"
+
+if [[ -z "$project_name" ]]; then
   exit 0
 fi
 
-project_path="$PROJECTS_HOME/$project_path"
+project_path="$PROJECTS_HOME/$project_name"
+
+if [[ ! -d "$project_path" ]]; then
+  echo "Error: Project not found: $project_path" >&2
+  exit 1
+fi
 
 # Find repos in project
 repos=$(find "$project_path" -mindepth 1 -maxdepth 1 -type d -exec test -e "{}/.git" \; -print 2>/dev/null \
@@ -59,7 +68,11 @@ if [[ -n "$repos" ]]; then
 fi
 
 # Select repo
-repo=$(echo "$repo_list" | fzf --prompt="Repo: " --query="$repo_query")
+output=$(echo "$repo_list" | fzf --print-query --prompt="Repo: " --query="$repo_query") || true
+
+fzf_query=$(echo "$output" | sed -n '1p')
+fzf_selection=$(echo "$output" | sed -n '2p')
+repo="${fzf_selection:-$fzf_query}"
 
 target="$project_path"
 if [[ -n "$repo" && "$repo" != "." ]]; then

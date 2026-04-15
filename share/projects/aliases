@@ -16,4 +16,15 @@ pn() {
   fi
 }
 
+pp() {
+  local target
+  target=$(pauto --print "$@")
+  if [[ -n "$target" ]]; then
+    cd "$target" || return 1
+    if [[ -n "$PROJECTS_AUTO_CMD" ]]; then
+      $PROJECTS_AUTO_CMD
+    fi
+  fi
+}
+
 alias pa='padd'

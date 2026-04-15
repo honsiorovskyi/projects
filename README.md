@@ -93,6 +93,7 @@ Local bare repositories used to speed up cloning. When you clone a repo for the 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PROJECTS_TICKET_ENABLED` | Enable ticket ID integration in `pnew` | (disabled) |
+| `PROJECTS_AUTO_CMD` | Command to run after cd in `pauto`/`pp` (e.g. `oo`) | (none) |
 
 ## Commands
 
@@ -146,6 +147,7 @@ pclone api-gateway user-service
 Navigate to a project/repo.
 
 - `project` and `repo` are fzf query prefills
+- Uses `--print-query` so the typed query is used when no match is selected
 - `--print` outputs the path instead of spawning a shell
 - `.` entry in repo list goes to project root
 
@@ -153,6 +155,20 @@ Navigate to a project/repo.
 pgo              # select project, then repo
 pgo feature      # filter projects by "feature"
 pgo feature api  # filter projects by "feature", repos by "api"
+```
+
+### `pauto [--print] [query]`
+
+Select an existing project or type a new name to create one.
+
+- Uses `--print-query` so the typed query is used when no match is selected
+- Creates the project directory if it doesn't exist
+- After navigating, runs `$PROJECTS_AUTO_CMD` if defined
+- `--print` outputs the path instead of spawning a shell
+
+```bash
+pauto              # select or create a project
+pauto my-project   # pre-fill fzf with "my-project"
 ```
 
 ### `psync`
@@ -210,7 +226,8 @@ source ~/.local/projects/share/projects/aliases
 
 This provides:
 - `p` - navigate to project/repo (wrapper around `pgo --print`)
-- `pn` - alias for `pnew`
+- `pn` - create a new project and cd into it (wrapper around `pnew --print`)
+- `pp` - select or create a project and cd into it, runs `$PROJECTS_AUTO_CMD` if set (wrapper around `pauto --print`)
 - `pa` - alias for `padd`
 
 ## Prompt Integration

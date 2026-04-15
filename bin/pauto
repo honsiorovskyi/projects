@@ -1,0 +1,72 @@
+#!/bin/bash
+# vim:ft=bash
+#
+# Navigate to (or create) a project, then optionally run PROJECTS_AUTO_CMD
+
+set -e
+
+PROJECTS_HOME="${PROJECTS_HOME:-$HOME/projects}"
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  cat <<EOF
+Usage: pauto [--print] [query]
+
+Select an existing project or type a new name to create one.
+Uses fzf --print-query so the typed query is used when no match is selected.
+
+Options:
+  --print   Print the path instead of spawning a new shell
+
+Arguments:
+  query     Initial search query for fzf
+
+After navigating, runs \$PROJECTS_AUTO_CMD if defined.
+
+Environment:
+  PROJECTS_HOME      Base projects directory (default: ~/projects)
+  PROJECTS_AUTO_CMD  Command to run after cd (e.g. oo)
+EOF
+  exit 0
+fi
+
+print_only=false
+if [[ "$1" == "--print" ]]; then
+  print_only=true
+  shift
+fi
+
+query="${1:-}"
+
+mkdir -p "$PROJECTS_HOME"
+
+# Select or type a project name
+output=$(find "$PROJECTS_HOME" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+  | sed "s|$PROJECTS_HOME/||" \
+  | sort \
+  | fzf --print-query --prompt="Project: " --query="$query") || true
+
+# First line is the query, second line (if any) is the selection
+fzf_query=$(echo "$output" | sed -n '1p')
+fzf_selection=$(echo "$output" | sed -n '2p')
+
+# Use the selection if available, otherwise use the typed query
+name="${fzf_selection:-$fzf_query}"
+
+if [[ -z "$name" ]]; then
+  exit 0
+fi
+
+project_path="$PROJECTS_HOME/$name"
+mkdir -p "$project_path"
+
+if [[ "$print_only" == true ]]; then
+  echo "$project_path"
+else
+  cd "$project_path"
+
+  if [[ -n "$PROJECTS_AUTO_CMD" ]]; then
+    exec $PROJECTS_AUTO_CMD
+  else
+    exec $SHELL
+  fi
+fi
