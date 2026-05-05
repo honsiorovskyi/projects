@@ -48,19 +48,19 @@ A lightweight text file containing repository names from your organization. This
 
 ### Git Cache (`PROJECTS_CACHE_REPOS`)
 
-Local bare repositories used to speed up cloning. When you clone a repo for the first time, it's cached here. Subsequent clones of the same repo (in other projects) copy from the local cache instead of fetching everything from the remote.
+Local repositories used to speed up cloning. When you clone a repo for the first time, it's cached here. Subsequent clones of the same repo (in other projects) fetch updates and copy from the local cache instead of cloning everything from the remote.
 
 - **Location**: `~/.cache/p.repos/` (grows as you use more repos)
 - **Updated by**: `pclone` (on-demand, when you clone)
-- **Content**: Shallow bare repos (single branch, depth 1)
+- **Content**: Full clones (fetched with `--all --prune` on subsequent uses)
 
 ```
 ~/.cache/
 ├── p.repos.list          # repo list (lightweight, auto-synced)
 └── p.repos/              # git cache (grows on demand)
-    ├── api-gateway.git
-    ├── user-service.git
-    └── shared-lib.git
+    ├── api-gateway/
+    ├── user-service/
+    └── shared-lib/
 ```
 
 ## Environment Variables
@@ -85,35 +85,35 @@ Local bare repositories used to speed up cloning. When you clone a repo for the 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PROJECTS_CACHE_REPOS_LIST` | Repo list file (lightweight, auto-synced) | `~/.cache/p.repos.list` |
-| `PROJECTS_CACHE_REPOS` | Git bare repo cache (grows on demand) | `~/.cache/p.repos` |
+| `PROJECTS_CACHE_REPOS` | Git repo cache directory (grows on demand) | `~/.cache/p.repos` |
 | `PROJECTS_SYNC_MAX_AGE` | Auto-sync repo list when older than N seconds | `604800` (1 week) |
 
 ### Optional
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PROJECTS_TICKET_ENABLED` | Enable ticket ID integration in `pnew` | (disabled) |
-| `PROJECTS_AUTO_CMD` | Command to run after cd in `pauto`/`pp` (e.g. `oo`) | (none) |
+| `PROJECTS_AUTO_CMD` | Command to run after cd in the `p` alias (e.g. `oo`) | (none) |
+| `PROJECTS_POST_CREATE_CMD` | Command to run after project creation in `pnew` (receives project path) | (none) |
 
 ## Commands
 
-### `pnew [name] [ticket] [repo_filter]`
+### `pnew [--print] [name] [repo_filter]`
 
 Create a new project directory.
 
 - Prompts for missing `name` argument
-- If `PROJECTS_TICKET_ENABLED=1`, also prompts for ticket ID
-- Creates `$PROJECTS_HOME/<name>[-<ticket>]/`
+- Hyphenates the name (lowercase, non-alphanumeric to dashes)
+- Creates `$PROJECTS_HOME/<name>/`
 - Opens `padd` for adding repos
+- Runs `$PROJECTS_POST_CREATE_CMD` if set (receives project path as argument)
+- `--print` outputs the path instead of spawning a shell
 
 ```bash
-# Without ticket integration (default)
 pnew "feature xyz" api
 # Creates ~/projects/feature-xyz/ and opens repo selector filtered by "api"
 
-# With PROJECTS_TICKET_ENABLED=1
-pnew "feature xyz" JIRA-123 api
-# Creates ~/projects/feature-xyz-jira-123/ and opens repo selector filtered by "api"
+pnew --print "my project"
+# Creates ~/projects/my-project/, opens padd, prints the path
 ```
 
 ### `padd [--sync] [query]`
@@ -134,9 +134,10 @@ padd --sync      # refresh cache, then select
 
 Clone repositories into the current project.
 
-- Uses a local bare repo cache for faster subsequent clones
+- Uses a local repo cache for faster subsequent clones
+- First clone fetches from remote into cache; subsequent clones fetch updates
+- Copies cached repo into project directory
 - Creates a branch named after the project in each repo
-- Shallow clones by default
 
 ```bash
 pclone api-gateway user-service
@@ -225,9 +226,8 @@ source ~/.local/projects/share/projects/aliases
 ```
 
 This provides:
-- `p` - navigate to project/repo (wrapper around `pgo --print`)
-- `pn` - create a new project and cd into it (wrapper around `pnew --print`)
-- `pp` - select or create a project and cd into it, runs `$PROJECTS_AUTO_CMD` if set (wrapper around `pauto --print`)
+- `p` - select or create a project and cd into it, runs `$PROJECTS_AUTO_CMD` if set (wrapper around `pauto --print`)
+- `pp` - navigate to a project/repo (wrapper around `pgo --print`)
 - `pa` - alias for `padd`
 
 ## Prompt Integration
